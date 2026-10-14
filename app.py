@@ -6,7 +6,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-DB_PATH = Path(__file__).parent / "data" / "engagement_demo.sqlite"
+APP_DIR = Path(__file__).parent
+DB_CANDIDATES = (
+    APP_DIR / "data" / "engagement_demo.sqlite",
+    APP_DIR / "engagement_demo.sqlite",
+)
 Q12_ITEMS = [f"Q{i:02d}" for i in range(1, 13)]
 LEVELS = ["Basic Needs", "Individual", "Teamwork", "Growth"]
 LEVEL_DISPLAY = {
@@ -61,7 +65,14 @@ st.session_state.setdefault("conversation_chat", {})
 
 @st.cache_data
 def load_data():
-    conn = sqlite3.connect(DB_PATH)
+    db_path = next((path for path in DB_CANDIDATES if path.is_file()), None)
+    if db_path is None:
+        expected = " or ".join(str(path.relative_to(APP_DIR)) for path in DB_CANDIDATES)
+        raise FileNotFoundError(
+            f"Demo database not found. Add engagement_demo.sqlite under {expected}."
+        )
+
+    conn = sqlite3.connect(db_path)
 
     team_lookup = pd.read_sql_query(
         """
