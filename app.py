@@ -41,7 +41,7 @@ CANONICAL_OWNERS = {
 }
 
 # Project-defined percentile bands (not a Gallup standard): background, text color.
-BAND_STYLE = {"Green": ("#DDF2E3", "#1B5E33"), "Yellow": ("#FFF3C4", "#6B5200"), "Red": ("#FBE0E0", "#8A1F1F")}
+BAND_STYLE = {"High": ("#DDF2E3", "#006B35"), "Middle": ("#FFF3C4", "#6B5200"), "Low": ("#FBE0E0", "#9B1C14")}
 
 DEFAULT_COMMITMENTS = [
     {"Action": "Start a 10-minute weekly reset", "Owner": "Manager", "Date": "2026-12-01", "Status": "Not started"},
@@ -187,11 +187,11 @@ def ordinal(value: float) -> str:
 
 
 def band_name(percentile: float) -> str:
-    return "Green" if percentile >= 75 else "Yellow" if percentile >= 50 else "Red"
+    return "High" if percentile >= 75 else "Middle" if percentile >= 50 else "Low"
 
 
 def band_label(percentile: float) -> str:
-    return {"Green": "Green (75+)", "Yellow": "Yellow (50–74)", "Red": "Red (<50)"}[band_name(percentile)]
+    return {"High": "High (75+)", "Middle": "Middle (50–74)", "Low": "Low (<50)"}[band_name(percentile)]
 
 
 def band_chip(percentile: float) -> str:
@@ -213,6 +213,38 @@ def format_kpi(value, kind):
     if value is None or pd.isna(value):
         return "Not measured"
     return f"{value * 100:.1f}%" if kind == "pct" else f"{value:.1f}"
+
+
+def trend_svg(series: pd.Series, label: str) -> str:
+    values = [float(value) for value in series.tolist()]
+    years = [str(year) for year in series.index.tolist()]
+    if not values:
+        return "<p>No trend data available.</p>"
+    low, high = min(values), max(values)
+    spread = high - low or 1
+    width, height = 560, 132
+    x_positions = [
+        44 + index * (width - 88) / max(len(values) - 1, 1)
+        for index in range(len(values))
+    ]
+    y_positions = [78 - ((value - low) / spread) * 48 for value in values]
+    points = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(x_positions, y_positions))
+    markers = "".join(
+        f"<circle cx='{x:.1f}' cy='{y:.1f}' r='5' fill='#007A3D'/>"
+        f"<text x='{x:.1f}' y='{y - 12:.1f}' text-anchor='middle' fill='#242729' "
+        f"font-size='12'>{value:.2f}</text>"
+        f"<text x='{x:.1f}' y='116' text-anchor='middle' fill='#5F6366' "
+        f"font-size='12'>{year}</text>"
+        for x, y, value, year in zip(x_positions, y_positions, values, years)
+    )
+    return (
+        f"<svg viewBox='0 0 {width} {height}' role='img' aria-label='{label}' "
+        "style='width:100%;height:auto;background:#fff;border:1px solid #E2E3E0;"
+        "border-radius:12px'>"
+        "<line x1='24' y1='92' x2='536' y2='92' stroke='#E2E3E0'/>"
+        f"<polyline points='{points}' fill='none' stroke='#007A3D' stroke-width='3' "
+        f"stroke-linecap='round' stroke-linejoin='round'/>{markers}</svg>"
+    )
 
 
 def parse_view_request(text: str):
@@ -373,7 +405,7 @@ st.markdown(
     """
     <style>
     .stApp {
-        background: linear-gradient(180deg, #f5f8f3 0%, #edf5eb 100%);
+        background: #F7F7F5;
     }
     .stApp > div {
         background: transparent;
@@ -400,32 +432,15 @@ st.markdown(
         border-radius: 10px;
         overflow: hidden;
     }
-    .nav-shell {
-        background: linear-gradient(180deg, #0c120d 0%, #111b15 100%);
-        border-radius: 18px;
-        padding: 18px 12px 14px 12px;
-        min-height: calc(100vh - 40px);
-        margin-right: 18px;
-        box-shadow: 0 10px 24px rgba(8, 20, 13, 0.18);
-        border: 1px solid rgba(255,255,255,0.05);
-    }
-    .nav-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        color: #f6f7f2;
-        font-weight: 800;
-        font-size: 1.15rem;
-        padding: 4px 8px 18px 8px;
-    }
-    .nav-header .icon {
-        width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(180deg, #f4d35e 0%, #d7b12b 100%); color: #111b15; display:flex; align-items:center; justify-content:center; font-size: 1rem; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.18);
+    [data-testid="stSidebar"] {
+        background: #FFFFFF;
+        border-right: 1px solid #E2E3E0;
     }
     .stButton > button {
         width: 100%;
-        border: 1px solid #174b2c;
-        background: #174b2c;
-        color: #ffffff;
+        border: 1px solid #E2E3E0;
+        background: #FFFFFF;
+        color: #242729;
         text-align: left;
         padding: 10px 12px;
         border-radius: 12px;
@@ -439,30 +454,35 @@ st.markdown(
         box-shadow: none;
     }
     .stButton > button:hover {
-        background: #d7b12b;
-        border-color: #8a6d00;
-        color: #111b15;
+        background: #F3F7F4;
+        border-color: #007A3D;
+        color: #17452B;
     }
-    .stButton > button:focus,
-    .stButton > button:active,
+    button[data-testid="stBaseButton-primary"],
+    button[data-testid="stBaseButton-primary"]:hover {
+        background: #007A3D;
+        border: 1px solid #006331;
+        color: #FFFFFF;
+    }
+    button[data-testid="stBaseButton-primary"] p {
+        color: #FFFFFF !important;
+    }
     .stButton > button:focus-visible {
-        background: #d7b12b;
-        border: 1px solid #8a6d00;
-        box-shadow: inset 0 -2px 0 rgba(0,0,0,0.1);
-        color: #111b15;
+        outline: 3px solid #8A6A00;
+        outline-offset: 2px;
     }
     .step-pill {
-        width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(180deg, #dff7c8 0%, #b7e27d 100%); color: #0d180f; display:inline-flex; align-items:center; justify-content:center; font-size: 0.8rem; font-weight: 800; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.12);
+        width: 28px; height: 28px; border-radius: 8px; background: #E8F3EC; color: #17452B; display:inline-flex; align-items:center; justify-content:center; font-size: 0.8rem; font-weight: 800;
     }
     .screen-header {
         display: flex; justify-content: space-between; align-items: center; margin: 6px 0 18px 0;
     }
     .screen-header h1 {
-        font-size: 2.05rem; font-weight: 900; color: #0c1a12; margin: 0; padding: 0;
+        font-size: 2.05rem; font-weight: 700; color: #242729; margin: 0; padding: 0;
     }
     .screen-pill {
-        background: linear-gradient(180deg, #f4d35e 0%, #d7b12b 100%);
-        color: #101a13; font-size: 0.78rem; font-weight: 800; border-radius: 999px; padding: 7px 12px; letter-spacing: 0.02em; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.10);
+        background: #E8F3EC;
+        color: #17452B; font-size: 0.78rem; font-weight: 750; border-radius: 999px; padding: 7px 12px; letter-spacing: 0.02em;
     }
     .content-panel {
         background: rgba(255,255,255,0.65); border: 1px solid rgba(20,50,90,0.08); border-radius: 16px; padding: 18px; box-shadow: 0 2px 6px rgba(14,25,50,0.04);
@@ -476,8 +496,8 @@ st.markdown(
     .strong-card, .opp-card {
         border-radius: 14px; padding: 14px; min-height: 180px; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(20,40,25,0.08);
     }
-    .strong-card { background: linear-gradient(180deg, #e7f6e9 0%, #dff2dd 100%); }
-    .opp-card { background: linear-gradient(180deg, #fff9e8 0%, #fdf1d4 100%); }
+    .strong-card { background: #F3F7F4; }
+    .opp-card { background: #FFF9E8; }
     .status-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #1c3d2c; }
     .theta-card { background: #f9faf7; border-radius: 14px; border: 1px solid rgba(80,110,160,0.1); padding: 16px; }
     .subtle { color: #35483a; }
@@ -493,56 +513,69 @@ st.markdown(
 
 team_ids = team_lookup["team_id"].tolist()
 team_names = dict(zip(team_lookup["team_id"], team_lookup["team_name"]))
-SCREENS = ["Screen 1 — Goal & results", "Screen 2 — Conversation kit", "Screen 3 — Commitments", "Screen 4 — Review"]
-NAV_LABELS = ["Goal & Results", "Conversation Kit", "Commitments", "Review"]
+SCREENS = ["Read results", "Prepare conversation", "Record decisions", "Review"]
+NAV_ITEMS = [
+    ("Dashboard", "Dashboard"),
+    ("Read results", "1  Read results"),
+    ("Prepare conversation", "2  Prepare"),
+    ("Record decisions", "3  Record decisions"),
+    ("Review", "4  Review"),
+    ("Score record", "Score record"),
+    ("Decision history", "Decision history"),
+]
 
-if "screen_index" not in st.session_state:
-    st.session_state.screen_index = 0
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "Dashboard"
 
-nav_col, main_col = st.columns([0.22, 0.78])
-with nav_col:
+with st.sidebar:
+    st.markdown("### 🤝 State of the Team Agent")
+    st.caption("THIS CYCLE")
+    for page, label in NAV_ITEMS[:5]:
+        if st.button(label, key=f"nav_{page}", use_container_width=True,
+                     type="primary" if st.session_state.active_page == page else "secondary"):
+            st.session_state.active_page = page
+    st.caption("RECORDS")
+    for page, label in NAV_ITEMS[5:]:
+        if st.button(label, key=f"nav_{page}", use_container_width=True,
+                     type="primary" if st.session_state.active_page == page else "secondary"):
+            st.session_state.active_page = page
+    st.markdown("---")
+    st.markdown("**Synthetic demo data**")
+
+selected_team_id = st.selectbox(
+    "Team",
+    team_ids,
+    index=team_ids.index(DEMO_TEAM) if DEMO_TEAM in team_ids else 0,
+    format_func=lambda t: f"{team_names[t]} ({t})",
+    key="team_select",
+)
+selected_team = team_lookup[team_lookup["team_id"] == selected_team_id].iloc[0]
+selector_cols = st.columns([1.35, 1, 1.15, 1.5], gap="medium")
+with selector_cols[0]:
+    selected_goal = st.selectbox("Business goal", list(GOALS.keys()), key="goal_select")
+with selector_cols[1]:
+    selected_period = st.selectbox("Survey year", periods, index=len(periods) - 1, key="period_select")
+with selector_cols[2]:
+    selected_focus_level = st.selectbox(
+        "Q12 focus level",
+        ["All Q12 levels"] + [LEVEL_DISPLAY[level] for level in LEVELS],
+        key="q12_focus_level",
+    )
+with selector_cols[3]:
     st.markdown(
-        """
-        <div class='nav-shell'>
-            <div class='nav-header'><span class='icon'>🤝</span>State of the Team Agent</div>
-        """,
+        f"<div style='padding-top:32px;color:#34463a;font-weight:600'>"
+        f"Team: {selected_team['team_name']} ({selected_team['department']})</div>",
         unsafe_allow_html=True,
     )
-    for idx, label in enumerate(NAV_LABELS):
-        if st.button(f"{idx + 1} {label}", key=f"nav_{idx}", use_container_width=True):
-            st.session_state.screen_index = idx
-    st.markdown("</div>", unsafe_allow_html=True)
 
-with main_col:
-    selected_team_id = st.selectbox(
-        "Team",
-        team_ids,
-        index=team_ids.index(DEMO_TEAM) if DEMO_TEAM in team_ids else 0,
-        format_func=lambda t: f"{team_names[t]} ({t})",
-        key="team_select",
-    )
-    selected_team = team_lookup[team_lookup["team_id"] == selected_team_id].iloc[0]
-    goal_cols = st.columns([1.2, 1.2, 1.5, 1])
-    with goal_cols[0]:
-        selected_goal = st.selectbox("Business goal", list(GOALS.keys()), key="goal_select")
-    with goal_cols[1]:
-        selected_period = st.selectbox("Survey year", periods, index=len(periods) - 1, key="period_select")
-    with goal_cols[2]:
-        selected_focus_level = st.selectbox(
-            "Q12 focus level",
-            ["All Q12 levels"] + [LEVEL_DISPLAY[level] for level in LEVELS],
-            key="q12_focus_level",
-        )
-    with goal_cols[3]:
-        st.write("")
-        st.write("")
-        st.write(f"Team: {selected_team['team_name']} ({selected_team['department']})")
-    screen = SCREENS[st.session_state.screen_index]
-    plan = st.session_state["plans"].get(selected_team_id)
-    st.markdown(
-        f"<div class='screen-header'><h1>{screen.split(' — ')[1]}</h1><div class='screen-pill'>Screen {st.session_state.screen_index + 1} of 4</div></div>",
-        unsafe_allow_html=True,
-    )
+screen = st.session_state.active_page
+plan = st.session_state["plans"].get(selected_team_id)
+if screen in SCREENS:
+    step_num = SCREENS.index(screen) + 1
+    step_header = f"<div class='screen-header'><div><div class='screen-pill'>STEP {step_num} OF 4</div><h1>{screen}</h1></div></div>"
+else:
+    step_header = f"<div class='screen-header'><div><h1>{screen}</h1><span class='subtle'>Synthetic demo data · one team at a time</span></div><div class='screen-pill'>{selected_period.replace('-Annual', ' survey')}</div></div>"
+st.markdown(step_header, unsafe_allow_html=True)
 
 # Shared calculations for the selected team and year (all in code).
 team_row = get_team_row(selected_team_id, selected_period, means)
@@ -588,25 +621,99 @@ def default_review_date():
     return last + timedelta(days=14)
 
 
-if screen == SCREENS[0]:
-    # Chat requests are read first so they can update the configurable area below (Interface Agent).
+assistant_focus = opportunities["item_id"].tolist() if visible and not ranking.empty else []
+with st.expander("Ask the assistant", expanded=False):
+    if visible:
+        conversation_assistant(selected_team_id, assistant_focus, q12)
+    else:
+        st.info("Results are hidden for this team and year. The assistant is unavailable.")
+
+
+if screen == "Dashboard":
+    st.markdown("## Your next step")
+    if not visible:
+        suppressed_notice()
+    else:
+        next_action = "Continue this cycle" if plan else "Read the latest results and set this cycle's goal"
+        left, right = st.columns([2, 1])
+        with left:
+            st.subheader(next_action)
+            st.write(f"Latest survey: **{selected_period.replace('-Annual', '')}** · {team_n} responses")
+            st.write(f"Business goal: **{selected_goal}** · about 5 minutes")
+            if st.button("Start step 1", type="primary", key="dashboard_start"):
+                st.session_state.active_page = "Read results"
+                st.rerun()
+        with right:
+            st.metric("Engagement (Q01–Q12)", f"{team_row['q12_mean']:.2f}",
+                      delta=f"{team_row['q12_mean'] - prev_row['q12_mean']:+.2f} since {prev_period}" if prev_row is not None else None)
+            st.metric("Respondents", team_n, help=f"Team-level results shown only when n ≥ {MIN_N}.")
+        history = means[(means["team_id"] == selected_team_id) & (means["n"] >= MIN_N)].set_index("survey_period")
+        with st.container(border=True):
+            st.markdown("### Engagement over annual surveys")
+            trend = history["q12_mean"].copy()
+            trend.index = [period[:4] for period in trend.index]
+            st.markdown(trend_svg(trend, "Team Q12 mean over annual surveys"), unsafe_allow_html=True)
+        if kpi_now is not None:
+            st.metric(selected_goal, format_kpi(kpi_now, goal_kind),
+                      help="Business outcome context only; it does not establish cause.")
+    st.caption("One team only. No individual or cross-team comparisons.")
+
+elif screen == "Score record":
+    st.markdown("Numbers over time. Team-level results only.")
+    team_history = means[(means["team_id"] == selected_team_id) & (means["n"] >= MIN_N)].copy()
+    if team_history.empty:
+        st.warning("Results are hidden because fewer than 5 people responded.")
+    else:
+        result_rows = []
+        for item in Q12_ITEMS:
+            row = {"Item": f"{item} · {q12.loc[item, 'item_label']}",
+                   "Level": q12.loc[item, "hierarchy_level"]}
+            for period in periods:
+                year_row = team_history[team_history["survey_period"] == period]
+                row[period[:4]] = round(float(year_row[item].iat[0]), 2) if not year_row.empty else "—"
+            result_rows.append(row)
+        st.dataframe(pd.DataFrame(result_rows), use_container_width=True, hide_index=True)
+        st.caption("Scores describe team results; reasons come from team conversations.")
+        st.markdown("### Business outcomes")
+        outcome_history = outcomes[outcomes["team_id"] == selected_team_id].set_index("survey_period")
+        kpi_rows = []
+        for period in periods:
+            if period in outcome_history.index:
+                kpi_rows.append({
+                    "Year": period[:4],
+                    "Turnover": format_kpi(outcome_history.loc[period, "turnover_rate"], "pct"),
+                    "Absenteeism": format_kpi(outcome_history.loc[period, "absenteeism_rate"], "pct"),
+                    "Customer experience": format_kpi(outcome_history.loc[period, "customer_experience_score"], "score"),
+                    "Quality": format_kpi(outcome_history.loc[period, "quality_score"], "score"),
+                })
+        st.dataframe(pd.DataFrame(kpi_rows), use_container_width=True, hide_index=True)
+        st.caption("Business outcomes are concurrent context, not proof that engagement caused a change.")
+
+elif screen == "Decision history":
+    st.markdown("What the team chose and what happened. Confirmed records are not overwritten.")
+    if plan:
+        with st.container(border=True):
+            st.markdown("### Current cycle")
+            st.write(f"Goal: {selected_goal} · review date: {plan['review_date']}")
+            st.dataframe(pd.DataFrame(plan["commitments"]), use_container_width=True, hide_index=True)
+    historical = decision_history[decision_history["team_id"] == selected_team_id].sort_values(
+        "decision_date", ascending=False
+    )
+    if historical.empty:
+        st.info("No earlier decisions recorded for this team.")
+    else:
+        st.dataframe(
+            historical[["decision_date", "issue_focus", "summary", "intervention", "outcome_assessment", "notes"]]
+            .rename(columns={"decision_date": "Date", "issue_focus": "Item", "summary": "What the team said",
+                             "intervention": "Action", "outcome_assessment": "Assessment", "notes": "Notes"}),
+            use_container_width=True, hide_index=True,
+        )
+    st.caption("Historical data is synthetic; outcome assessments do not establish causality.")
+
+elif screen == SCREENS[0]:
     pins_key, item_key = f"pins_{selected_team_id}", f"trend_item_{selected_team_id}"
     if pins_key not in st.session_state:
         st.session_state[pins_key] = st.session_state["view_defaults"].get(selected_team_id, {}).get("pins", [])
-    chat = st.chat_input("Ask for a view, e.g. 'Show me the trend for Q02'")
-    chat_reply = None
-    if chat:
-        view, item = parse_view_request(chat)
-        if view is None:
-            chat_reply = ("That isn't a supported view. I can show: " + ", ".join(VIEWS) +
-                          ". I don't explain why a score moved; that comes from the team.")
-        else:
-            pins = [p for p in st.session_state[pins_key] if p != view] + [view]
-            st.session_state[pins_key] = pins[-MAX_PINS:]
-            if item:
-                st.session_state[item_key] = item
-            action = f'show_view(view="{view}"' + (f', item="{item}"' if item else "") + ")"
-            chat_reply = f"Done: `{action}`"
 
     st.subheader("Step 0: Set business goal")
     st.info("Business goal adds context; it does not change the Q12 ranking.")
@@ -650,7 +757,7 @@ if screen == SCREENS[0]:
                 st.markdown(f"Mean **{row['team_mean']:.2f}**{change_txt}")
                 st.markdown(band_chip(row["percentile"]), unsafe_allow_html=True)
                 if row["item_id"] in decline_flags:
-                    st.warning("Declined by 0.15+")
+                    st.error(f"Dropped {abs(decline_flags[row['item_id']]['delta']):.2f}")
                 st.write(note)
 
     c1, c2, c3 = st.columns(3)
@@ -715,11 +822,8 @@ if screen == SCREENS[0]:
             st.session_state["view_defaults"].pop(selected_team_id, None)
             st.session_state.pop(pins_key, None)
             st.rerun()
-    if chat_reply:
-        with st.chat_message("assistant"):
-            st.write(chat_reply)
-
     hist = means[(means["team_id"] == selected_team_id) & (means["n"] >= MIN_N)].set_index("survey_period")
+    hist.index = pd.Index([int(period[:4]) for period in hist.index], name="Year")
     pins = st.session_state[pins_key]
     if not pins:
         st.write("No views pinned.")
@@ -771,41 +875,33 @@ elif screen == SCREENS[1]:
     if any(i in MANAGER_DRIVEN for i in focus_items):
         st.info("Manager-driven focus: start with self-reflection.")
 
-    conversation_col, assistant_col = st.columns([2.2, 1], gap="large")
-    with conversation_col:
-        st.markdown(
-            "**Focus items:** "
-            + " · ".join(f"{i} {q12.loc[i, 'item_label']}" for i in focus_items)
-        )
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### Suggested agenda")
-            for item in kit["agenda"]:
-                st.markdown(f"- {item}")
-            st.markdown("### Questions to explore")
-            for item in kit["questions_to_explore"]:
-                st.markdown(f"- {item}")
-        with col2:
-            st.markdown("### Manager self-reflection")
-            for item in kit["reflection_questions"]:
-                st.markdown(f"- {item}")
-            st.markdown("### Gallup guidance")
-            for text, source in kit["gallup_guidance"]:
-                st.write(f"{text}  \n*Source: {source}*")
-        st.caption("Conversation prompts are project-authored.")
+    st.markdown(
+        "**Focus items:** "
+        + " · ".join(f"{i} {q12.loc[i, 'item_label']}" for i in focus_items)
+    )
+    st.markdown("### Suggested agenda")
+    for item in kit["agenda"]:
+        st.markdown(f"- {item}")
+    st.markdown("### Questions for the team")
+    for item in kit["questions_to_explore"]:
+        st.markdown(f"- {item}")
+    st.markdown("### Before the meeting")
+    for item in kit["reflection_questions"]:
+        st.markdown(f"- {item}")
+    st.caption("Project-authored draft questions.")
 
-        st.markdown("### From Decision History")
-        past = decision_history[(decision_history["team_id"] == selected_team_id) &
-                                (decision_history["issue_focus"].isin(focus_items))].sort_values("decision_date", ascending=False)
-        if past.empty:
-            st.write("No earlier decisions on these items for this team.")
-        else:
-            st.dataframe(past[["decision_date", "issue_focus", "intervention", "outcome_assessment", "notes"]],
-                         use_container_width=True, hide_index=True)
-        st.write(kit["team_context"])
-    with assistant_col:
-        with st.container(border=True):
-            conversation_assistant(selected_team_id, focus_items, q12)
+    st.markdown("### Gallup guidance")
+    for text, source in kit["gallup_guidance"]:
+        st.write(f"{text}  \n*Source: {source}*")
+
+    st.markdown("### Last time on these items")
+    past = decision_history[(decision_history["team_id"] == selected_team_id) &
+                            (decision_history["issue_focus"].isin(focus_items))].sort_values("decision_date", ascending=False)
+    if past.empty:
+        st.write("No earlier decisions on these items.")
+    else:
+        st.dataframe(past[["decision_date", "issue_focus", "intervention", "outcome_assessment", "notes"]],
+                     use_container_width=True, hide_index=True)
     st.progress(50)
 
 elif screen == SCREENS[2]:
@@ -869,8 +965,8 @@ elif screen == SCREENS[3]:
             st.text_input("What the team said, in its own words", value="Handoffs feel clearer; the weekly reset is still new.")
         with col2:
             st.markdown("### Goal KPI")
-            st.metric(selected_goal, "Next quarterly update")
-            st.caption(f"Starting value: {format_kpi(kpi_now, goal_kind)}. Next quarterly update pending; context only.")
+            st.metric(selected_goal, "Next annual update")
+            st.caption(f"Starting value: {format_kpi(kpi_now, goal_kind)}. Next annual update pending; context only.")
 
         st.markdown("### This cycle's commitments")
         edited = st.data_editor(
@@ -915,10 +1011,17 @@ elif screen == SCREENS[3]:
         else:
             st.write("No earlier tracked decisions for this team.")
 
-        st.markdown("### Step 5: Recalibrate")
-        choice = st.radio("Team next step", ["Keep going", "Adjust the plan", "New focus"], index=0, horizontal=True)
-        destination = {"Keep going": "Step 4 (next review scheduled)", "Adjust the plan": "Step 2", "New focus": "Step 1"}[choice]
-        st.write(f"Selected next step: {choice} → returns to {destination}.")
+        st.markdown("### What’s next?")
+        keep_col, adjust_col, new_col = st.columns(3)
+        if keep_col.button("Keep going", key="next_keep"):
+            st.session_state.active_page = "Review"
+            st.rerun()
+        if adjust_col.button("Adjust the plan", key="next_adjust"):
+            st.session_state.active_page = "Prepare conversation"
+            st.rerun()
+        if new_col.button("New focus", key="next_focus"):
+            st.session_state.active_page = "Read results"
+            st.rerun()
     with side:
         action_assistant(selected_team_id, "s4", current_commitments(),
                          plan["review_date"] if plan else default_review_date())
